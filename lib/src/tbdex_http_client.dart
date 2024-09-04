@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:ed25519_edwards/ed25519_edwards.dart' as ed;
 import 'message.dart';
+import 'order_status.dart';
 import 'rfq.dart';
 import 'quote.dart';
 import 'order.dart';
@@ -98,6 +99,54 @@ class tbDEXHttpClient {
     if (response.statusCode != 200) {
       throw Exception('Failed to submit order: ${response.body}');
     }
+  }
+
+  static Future<OrderStatus> getLatestOrderStatus(
+      String pfiDIDURI, String exchangeId) async {
+    final endpoint = await _getPFIServiceEndpoint(pfiDIDURI);
+    final response =
+        await http.get(Uri.parse('$endpoint/exchanges/$exchangeId'));
+
+    if (response.statusCode == 200) {
+      final jsonResponse = json.decode(response.body);
+      final messages = jsonResponse['data'] as List<dynamic>;
+
+      // find the latest OrderStatus message
+      final latestOrderStatus = messages.reversed.firstWhere(
+        (message) => message['metadata']['kind'] == 'orderstatus',
+        orElse: () => throw Exception('No OrderStatus found for this exchange'),
+      );
+
+      return _parseOrderStatus(latestOrderStatus);
+    } else {
+      throw Exception('Failed to get order status: ${response.body}');
+    }
+  }
+
+  static OrderStatus _parseOrderStatus(Map<String, dynamic> orderStatusJson) {
+    final metadata = MessageMetadata(
+      id: orderStatusJson['metadata']['id'],
+      kind: MessageKind.orderStatus,
+      from: orderStatusJson['metadata']['from'],
+      to: orderStatusJson['metadata']['to'],
+      exchangeId: orderStatusJson['metadata']['exchangeId'],
+      createdAt: DateTime.parse(orderStatusJson['metadata']['createdAt']),
+      protocol: orderStatusJson['metadata']['protocol'],
+    );
+
+    final data = OrderStatusData(
+      status: Status.values.firstWhere(
+        (s) =>
+            s.toString().split('.').last == orderStatusJson['data']['status'],
+      ),
+      details: orderStatusJson['data']['details'],
+    );
+
+    return OrderStatus(
+      metadata: metadata,
+      data: data,
+      signature: orderStatusJson['signature'],
+    );
   }
 
   static Map<String, dynamic> _serializeRFQ(RFQ rfq) {
