@@ -12,11 +12,14 @@ import '../messages/order.dart';
 import '../resources/balance.dart';
 import '../resources/offering.dart';
 import '../resources/resource.dart';
+import '../utils/logger.dart';
+import '../utils/tbdex_error.dart';
 
 // ignore: camel_case_types
 class tbDEXHttpClient {
   static Future<String> _getPFIServiceEndpoint(String pfiDIDURI) async {
     // TODO: Implement DID resolution
+    Logger.debug('Resolving DID: $pfiDIDURI');
     // For now, we'll return a placeholder
     return 'https://api.example.com/v1';
   }
@@ -102,153 +105,205 @@ class tbDEXHttpClient {
   }
 
   static Future<List<Offering>> getOfferings(String pfiDIDURI) async {
-    final endpoint = await _getPFIServiceEndpoint(pfiDIDURI);
-    final response = await http.get(Uri.parse('$endpoint/offerings'));
+    try {
+      Logger.info('Fetching offerings from PFI: $pfiDIDURI');
+      final endpoint = await _getPFIServiceEndpoint(pfiDIDURI);
+      final response = await http.get(Uri.parse('$endpoint/offerings'));
 
-    if (response.statusCode == 200) {
-      final jsonResponse = json.decode(response.body);
-      final offeringsJson = jsonResponse['data'] as List<dynamic>;
-      return offeringsJson.map((json) => _parseOffering(json)).toList();
-    } else {
-      throw Exception('Failed to fetch offerings: ${response.body}');
+      if (response.statusCode == 200) {
+        final jsonResponse = json.decode(response.body);
+        final offeringsJson = jsonResponse['data'] as List<dynamic>;
+        Logger.debug('Received ${offeringsJson.length} offerings');
+        return offeringsJson.map((json) => _parseOffering(json)).toList();
+      } else {
+        throw TbdexError(
+          'Failed to fetch offerings',
+          code: 'FETCH_OFFERINGS_FAILED',
+          details: {'statusCode': response.statusCode, 'body': response.body},
+        );
+      }
+    } catch (e) {
+      Logger.error('Error fetching offerings: $e');
+      rethrow;
     }
   }
 
   static Future<void> submitOffering(
       Offering offering, ed.PrivateKey privateKey) async {
-    offering.sign(privateKey);
-    if (!offering.verify(ed.public(privateKey))) {
-      throw Exception('Offering signature is invalid');
-    }
+    try {
+      Logger.info('Submitting offering: ${offering.metadata.id}');
+      offering.sign(privateKey);
+      if (!offering.verify(ed.public(privateKey))) {
+        throw TbdexError('Offering signature is invalid',
+            code: 'INVALID_SIGNATURE');
+      }
 
-    final endpoint = await _getPFIServiceEndpoint(offering.metadata.from);
-    final response = await http.post(
-      Uri.parse('$endpoint/offerings'),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode(_serializeResource(offering)),
-    );
+      final endpoint = await _getPFIServiceEndpoint(offering.metadata.from);
+      final response = await http.post(
+        Uri.parse('$endpoint/offerings'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(_serializeResource(offering)),
+      );
 
-    if (response.statusCode != 201) {
-      throw Exception('Failed to submit offering: ${response.body}');
+      if (response.statusCode != 201) {
+        throw TbdexError(
+          'Failed to submit offering',
+          code: 'SUBMIT_OFFERING_FAILED',
+          details: {'statusCode': response.statusCode, 'body': response.body},
+        );
+      }
+      Logger.info('Offering submitted successfully');
+    } catch (e) {
+      Logger.error('Error submitting offering: $e');
+      rethrow;
     }
   }
 
   static Future<List<Balance>> getBalances(
       String pfiDIDURI, String userDID) async {
-    final endpoint = await _getPFIServiceEndpoint(pfiDIDURI);
-    final response = await http.get(
-      Uri.parse('$endpoint/balances'),
-      headers: {
-        'Authorization': 'Bearer $userDID'
-      }, // simplified auth, we would replace with proper auth mechanism
-    );
+    try {
+      Logger.info('Fetching balances for user: $userDID from PFI: $pfiDIDURI');
+      final endpoint = await _getPFIServiceEndpoint(pfiDIDURI);
+      final response = await http.get(
+        Uri.parse('$endpoint/balances'),
+        headers: {
+          'Authorization': 'Bearer $userDID'
+        }, // simplified auth,we would replace with proper auth mechanism
+      );
 
-    if (response.statusCode == 200) {
-      final jsonResponse = json.decode(response.body);
-      final balancesJson = jsonResponse['data'] as List<dynamic>;
-      return balancesJson.map((json) => _parseBalance(json)).toList();
-    } else {
-      throw Exception('Failed to fetch balances: ${response.body}');
+      if (response.statusCode == 200) {
+        final jsonResponse = json.decode(response.body);
+        final balancesJson = jsonResponse['data'] as List<dynamic>;
+        Logger.debug('Received ${balancesJson.length} balances');
+        return balancesJson.map((json) => _parseBalance(json)).toList();
+      } else {
+        throw TbdexError(
+          'Failed to fetch balances',
+          code: 'FETCH_BALANCES_FAILED',
+          details: {'statusCode': response.statusCode, 'body': response.body},
+        );
+      }
+    } catch (e) {
+      Logger.error('Error fetching balances: $e');
+      rethrow;
     }
   }
 
   static Offering _parseOffering(Map<String, dynamic> json) {
-    final metadata = ResourceMetadata(
-      id: json['metadata']['id'],
-      kind: ResourceKind.offering,
-      from: json['metadata']['from'],
-      createdAt: DateTime.parse(json['metadata']['createdAt']),
-      updatedAt: json['metadata']['updatedAt'] != null
-          ? DateTime.parse(json['metadata']['updatedAt'])
-          : null,
-      protocol: json['metadata']['protocol'],
-    );
-
-    final data = OfferingData(
-      description: json['data']['description'],
-      payoutUnitsPerPayinUnit: json['data']['payoutUnitsPerPayinUnit'],
-      payin: PayinDetails(
-        currencyCode: json['data']['payin']['currencyCode'],
-        min: json['data']['payin']['min'],
-        max: json['data']['payin']['max'],
-        methods: (json['data']['payin']['methods'] as List<dynamic>)
-            .map((m) => PaymentMethod(
-                  kind: m['kind'],
-                  name: m['name'],
-                  description: m['description'],
-                  group: m['group'],
-                  requiredPaymentDetails: m['requiredPaymentDetails'],
-                  fee: m['fee'],
-                  min: m['min'],
-                  max: m['max'],
-                ))
-            .toList(),
-      ),
-      payout: PayoutDetails(
-        currencyCode: json['data']['payout']['currencyCode'],
-        min: json['data']['payout']['min'],
-        max: json['data']['payout']['max'],
-        methods: (json['data']['payout']['methods'] as List<dynamic>)
-            .map((m) => PaymentMethod(
-                  kind: m['kind'],
-                  name: m['name'],
-                  description: m['description'],
-                  group: m['group'],
-                  requiredPaymentDetails: m['requiredPaymentDetails'],
-                  fee: m['fee'],
-                  min: m['min'],
-                  max: m['max'],
-                ))
-            .toList(),
-      ),
-      requiredClaims: json['data']['requiredClaims'],
-      cancellation: CancellationDetails(
-        enabled: json['data']['cancellation']['enabled'],
-        termsUrl: json['data']['cancellation']['termsUrl'] != null
-            ? Uri.parse(json['data']['cancellation']['termsUrl'])
+    try {
+      final metadata = ResourceMetadata(
+        id: json['metadata']['id'],
+        kind: ResourceKind.offering,
+        from: json['metadata']['from'],
+        createdAt: DateTime.parse(json['metadata']['createdAt']),
+        updatedAt: json['metadata']['updatedAt'] != null
+            ? DateTime.parse(json['metadata']['updatedAt'])
             : null,
-        terms: json['data']['cancellation']['terms'],
-      ),
-    );
+        protocol: json['metadata']['protocol'],
+      );
 
-    return Offering(
-      metadata: metadata,
-      data: data,
-      signature: json['signature'],
-    );
+      final data = OfferingData(
+        description: json['data']['description'],
+        payoutUnitsPerPayinUnit: json['data']['payoutUnitsPerPayinUnit'],
+        payin: PayinDetails(
+          currencyCode: json['data']['payin']['currencyCode'],
+          min: json['data']['payin']['min'],
+          max: json['data']['payin']['max'],
+          methods: (json['data']['payin']['methods'] as List<dynamic>)
+              .map((m) => PaymentMethod(
+                    kind: m['kind'],
+                    name: m['name'],
+                    description: m['description'],
+                    group: m['group'],
+                    requiredPaymentDetails: m['requiredPaymentDetails'],
+                    fee: m['fee'],
+                    min: m['min'],
+                    max: m['max'],
+                  ))
+              .toList(),
+        ),
+        payout: PayoutDetails(
+          currencyCode: json['data']['payout']['currencyCode'],
+          min: json['data']['payout']['min'],
+          max: json['data']['payout']['max'],
+          methods: (json['data']['payout']['methods'] as List<dynamic>)
+              .map((m) => PaymentMethod(
+                    kind: m['kind'],
+                    name: m['name'],
+                    description: m['description'],
+                    group: m['group'],
+                    requiredPaymentDetails: m['requiredPaymentDetails'],
+                    fee: m['fee'],
+                    min: m['min'],
+                    max: m['max'],
+                  ))
+              .toList(),
+        ),
+        requiredClaims: json['data']['requiredClaims'],
+        cancellation: CancellationDetails(
+          enabled: json['data']['cancellation']['enabled'],
+          termsUrl: json['data']['cancellation']['termsUrl'] != null
+              ? Uri.parse(json['data']['cancellation']['termsUrl'])
+              : null,
+          terms: json['data']['cancellation']['terms'],
+        ),
+      );
+
+      return Offering(
+        metadata: metadata,
+        data: data,
+        signature: json['signature'],
+      );
+    } catch (e) {
+      Logger.error('Error parsing offering: $e');
+      throw TbdexError('Failed to parse offering',
+          code: 'PARSE_OFFERING_FAILED', details: e);
+    }
   }
 
   static Balance _parseBalance(Map<String, dynamic> json) {
-    final metadata = ResourceMetadata(
-      id: json['metadata']['id'],
-      kind: ResourceKind.balance,
-      from: json['metadata']['from'],
-      createdAt: DateTime.parse(json['metadata']['createdAt']),
-      updatedAt: json['metadata']['updatedAt'] != null
-          ? DateTime.parse(json['metadata']['updatedAt'])
-          : null,
-      protocol: json['metadata']['protocol'],
-    );
+    try {
+      final metadata = ResourceMetadata(
+        id: json['metadata']['id'],
+        kind: ResourceKind.balance,
+        from: json['metadata']['from'],
+        createdAt: DateTime.parse(json['metadata']['createdAt']),
+        updatedAt: json['metadata']['updatedAt'] != null
+            ? DateTime.parse(json['metadata']['updatedAt'])
+            : null,
+        protocol: json['metadata']['protocol'],
+      );
 
-    final data = BalanceData(
-      currencyCode: json['data']['currencyCode'],
-      available: json['data']['available'],
-    );
+      final data = BalanceData(
+        currencyCode: json['data']['currencyCode'],
+        available: json['data']['available'],
+      );
 
-    return Balance(
-      metadata: metadata,
-      data: data,
-      signature: json['signature'],
-    );
+      return Balance(
+        metadata: metadata,
+        data: data,
+        signature: json['signature'],
+      );
+    } catch (e) {
+      Logger.error('Error parsing balance: $e');
+      throw TbdexError('Failed to parse balance',
+          code: 'PARSE_BALANCE_FAILED', details: e);
+    }
   }
 
   static Map<String, dynamic> _serializeResource<D extends ResourceData>(
       Resource<D> resource) {
-    return {
-      'metadata': resource.metadata.toJson(),
-      'data': resource.data.toJson(),
-      'signature': resource.signature,
-    };
+    try {
+      return {
+        'metadata': resource.metadata.toJson(),
+        'data': resource.data.toJson(),
+        'signature': resource.signature,
+      };
+    } catch (e) {
+      Logger.error('Error serializing resource: $e');
+      throw TbdexError('Failed to serialize resource',
+          code: 'SERIALIZE_RESOURCE_FAILED', details: e);
+    }
   }
 
   static Future<OrderStatus> getLatestOrderStatus(
