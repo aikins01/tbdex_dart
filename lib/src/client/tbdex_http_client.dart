@@ -1,11 +1,14 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:ed25519_edwards/ed25519_edwards.dart' as ed;
-import 'message.dart';
-import 'order_status.dart';
-import 'rfq.dart';
-import 'quote.dart';
-import 'order.dart';
+import '../messages/cancel.dart';
+import '../messages/close.dart';
+import '../messages/message.dart';
+import '../messages/order_instructions.dart';
+import '../messages/order_status.dart';
+import '../messages/rfq.dart';
+import '../messages/quote.dart';
+import '../messages/order.dart';
 
 // ignore: camel_case_types
 class tbDEXHttpClient {
@@ -162,6 +165,103 @@ class tbDEXHttpClient {
       'metadata': order.metadata.toJson(),
       'data': order.data.toJson(),
       'signature': order.signature,
+    };
+  }
+
+  static Future<void> submitCancel(
+      Cancel cancel, ed.PublicKey publicKey) async {
+    if (!cancel.verify(publicKey)) {
+      throw Exception('Cancel signature is invalid');
+    }
+
+    final endpoint = await _getPFIServiceEndpoint(cancel.metadata.to);
+    final response = await http.put(
+      Uri.parse('$endpoint/exchanges/${cancel.metadata.exchangeId}'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode(_serializeMessage(cancel)),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to submit cancel: ${response.body}');
+    }
+  }
+
+  static Future<void> submitClose(Close close, ed.PublicKey publicKey) async {
+    if (!close.verify(publicKey)) {
+      throw Exception('Close signature is invalid');
+    }
+
+    final endpoint = await _getPFIServiceEndpoint(close.metadata.to);
+    final response = await http.put(
+      Uri.parse('$endpoint/exchanges/${close.metadata.exchangeId}'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode(_serializeMessage(close)),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to submit close: ${response.body}');
+    }
+  }
+
+  static Future<OrderInstructions> getLatestOrderInstructions(
+      String pfiDIDURI, String exchangeId) async {
+    final endpoint = await _getPFIServiceEndpoint(pfiDIDURI);
+    final response =
+        await http.get(Uri.parse('$endpoint/exchanges/$exchangeId'));
+
+    if (response.statusCode == 200) {
+      final jsonResponse = json.decode(response.body);
+      final messages = jsonResponse['data'] as List<dynamic>;
+
+      // Find the latest OrderInstructions message
+      final latestOrderInstructions = messages.reversed.firstWhere(
+        (message) => message['metadata']['kind'] == 'orderinstructions',
+        orElse: () =>
+            throw Exception('No OrderInstructions found for this exchange'),
+      );
+
+      return _parseOrderInstructions(latestOrderInstructions);
+    } else {
+      throw Exception('Failed to get order instructions: ${response.body}');
+    }
+  }
+
+  static OrderInstructions _parseOrderInstructions(
+      Map<String, dynamic> orderInstructionsJson) {
+    final metadata = MessageMetadata(
+      id: orderInstructionsJson['metadata']['id'],
+      kind: MessageKind.orderInstructions,
+      from: orderInstructionsJson['metadata']['from'],
+      to: orderInstructionsJson['metadata']['to'],
+      exchangeId: orderInstructionsJson['metadata']['exchangeId'],
+      createdAt: DateTime.parse(orderInstructionsJson['metadata']['createdAt']),
+      protocol: orderInstructionsJson['metadata']['protocol'],
+    );
+
+    final data = OrderInstructionsData(
+      payin: PaymentInstruction(
+        link: orderInstructionsJson['data']['payin']['link'],
+        instruction: orderInstructionsJson['data']['payin']['instruction'],
+      ),
+      payout: PaymentInstruction(
+        link: orderInstructionsJson['data']['payout']['link'],
+        instruction: orderInstructionsJson['data']['payout']['instruction'],
+      ),
+    );
+
+    return OrderInstructions(
+      metadata: metadata,
+      data: data,
+      signature: orderInstructionsJson['signature'],
+    );
+  }
+
+  static Map<String, dynamic> _serializeMessage<T extends MessageData>(
+      Message<T> message) {
+    return {
+      'metadata': message.metadata.toJson(),
+      'data': message.data.toJson(),
+      'signature': message.signature,
     };
   }
 
