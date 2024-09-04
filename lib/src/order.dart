@@ -1,4 +1,5 @@
 import 'package:typeid/typeid.dart';
+import 'package:ed25519_edwards/ed25519_edwards.dart' as ed;
 import 'message.dart';
 
 class OrderData implements MessageData {
@@ -7,6 +8,9 @@ class OrderData implements MessageData {
 
   @override
   MessageKind kind() => MessageKind.order;
+
+  @override
+  Map<String, dynamic> toJson() => {};
 }
 
 typedef Order = Message<OrderData>;
@@ -16,10 +20,12 @@ extension OrderExtension on Order {
     required String from,
     required String to,
     required String exchangeId,
+    required ed.PrivateKey privateKey,
     String protocol = "1.0",
   }) {
+    final id = TypeId.generate('order');
     final metadata = MessageMetadata(
-      id: TypeId.generate('order'),
+      id: id,
       kind: MessageKind.order,
       from: from,
       to: to,
@@ -28,6 +34,8 @@ extension OrderExtension on Order {
       protocol: protocol,
     );
 
-    return Order(metadata: metadata, data: OrderData());
+    final order = Order(metadata: metadata, data: OrderData());
+    order.sign(privateKey);
+    return order;
   }
 }

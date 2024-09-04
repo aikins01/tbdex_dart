@@ -16,6 +16,14 @@ class QuoteData implements MessageData {
 
   @override
   MessageKind kind() => MessageKind.quote;
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'expiresAt': expiresAt.toIso8601String(),
+        'payoutUnitsPerPayinUnit': payoutUnitsPerPayinUnit,
+        'payin': payin.toJson(),
+        'payout': payout.toJson(),
+      };
 }
 
 class QuoteDetails {
@@ -30,6 +38,13 @@ class QuoteDetails {
     this.fee,
     required this.total,
   });
+
+  Map<String, dynamic> toJson() => {
+        'currencyCode': currencyCode,
+        'subtotal': subtotal,
+        if (fee != null) 'fee': fee,
+        'total': total,
+      };
 }
 
 typedef Quote = Message<QuoteData>;

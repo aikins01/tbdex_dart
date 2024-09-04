@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'package:ed25519_edwards/ed25519_edwards.dart' as ed;
+
 enum MessageKind {
   rfq,
   cancel,
@@ -10,6 +13,7 @@ enum MessageKind {
 
 abstract class MessageData {
   MessageKind kind();
+  Map<String, dynamic> toJson();
 }
 
 class MessageMetadata {
@@ -32,6 +36,17 @@ class MessageMetadata {
     this.externalId,
     required this.protocol,
   });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'kind': kind.toString().split('.').last,
+        'from': from,
+        'to': to,
+        'exchangeId': exchangeId,
+        'createdAt': createdAt.toIso8601String(),
+        if (externalId != null) 'externalId': externalId,
+        'protocol': protocol,
+      };
 }
 
 class Message<D extends MessageData> {
@@ -45,13 +60,24 @@ class Message<D extends MessageData> {
     this.signature,
   });
 
-  Future<bool> verify() async {
-    // TODO: Implement verification logic
-    throw UnimplementedError();
+  void sign(ed.PrivateKey privateKey) {
+    final payload = _getPayloadForSigning();
+    final signatureBytes = ed.sign(privateKey, utf8.encode(payload));
+    this.signature = base64Url.encode(signatureBytes);
   }
 
-  Future<void> sign() async {
-    // TODO: Implement signing logic
-    throw UnimplementedError();
+  bool verify(ed.PublicKey publicKey) {
+    if (signature == null) return false;
+    final payload = _getPayloadForSigning();
+    final signatureBytes = base64Url.decode(signature!);
+    return ed.verify(publicKey, utf8.encode(payload), signatureBytes);
+  }
+
+  String _getPayloadForSigning() {
+    final Map<String, dynamic> payload = {
+      'metadata': metadata.toJson(),
+      'data': data.toJson(),
+    };
+    return json.encode(payload);
   }
 }

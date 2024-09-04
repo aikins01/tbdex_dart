@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:ed25519_edwards/ed25519_edwards.dart' as ed;
 import 'message.dart';
 import 'rfq.dart';
 import 'quote.dart';
@@ -19,8 +20,8 @@ class tbDEXHttpClient {
     }
   }
 
-  static Future<void> createExchange(RFQ rfq) async {
-    if (!await rfq.verify()) {
+  static Future<void> createExchange(RFQ rfq, ed.PublicKey publicKey) async {
+    if (!rfq.verify(publicKey)) {
       throw Exception('RFQ signature is invalid');
     }
 
@@ -28,7 +29,7 @@ class tbDEXHttpClient {
     final response = await http.post(
       Uri.parse('$endpoint/exchanges'),
       headers: {'Content-Type': 'application/json'},
-      body: json.encode({'rfq': rfq}),
+      body: json.encode({'rfq': _serializeRFQ(rfq)}),
     );
 
     if (response.statusCode != 200) {
@@ -82,9 +83,9 @@ class tbDEXHttpClient {
     return Quote(metadata: metadata, data: data);
   }
 
-  static Future<void> submitOrder(Order order) async {
-    if (order.signature == null) {
-      throw Exception('Order must be signed before submission');
+  static Future<void> submitOrder(Order order, ed.PublicKey publicKey) async {
+    if (!order.verify(publicKey)) {
+      throw Exception('Order signature is invalid');
     }
 
     final endpoint = await _getPFIServiceEndpoint(order.metadata.to);
@@ -99,18 +100,18 @@ class tbDEXHttpClient {
     }
   }
 
+  static Map<String, dynamic> _serializeRFQ(RFQ rfq) {
+    return {
+      'metadata': rfq.metadata.toJson(),
+      'data': rfq.data.toJson(),
+      'signature': rfq.signature,
+    };
+  }
+
   static Map<String, dynamic> _serializeOrder(Order order) {
     return {
-      'metadata': {
-        'id': order.metadata.id,
-        'kind': order.metadata.kind.toString().split('.').last,
-        'from': order.metadata.from,
-        'to': order.metadata.to,
-        'exchangeId': order.metadata.exchangeId,
-        'createdAt': order.metadata.createdAt.toIso8601String(),
-        'protocol': order.metadata.protocol,
-      },
-      'data': {}, // OrderData is empty
+      'metadata': order.metadata.toJson(),
+      'data': order.data.toJson(),
       'signature': order.signature,
     };
   }

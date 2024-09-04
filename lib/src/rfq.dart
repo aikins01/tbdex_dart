@@ -18,6 +18,14 @@ class RFQData implements MessageData {
 
   @override
   MessageKind kind() => MessageKind.rfq;
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'offeringId': offeringId,
+        'payin': payin.toJson(),
+        'payout': payout.toJson(),
+        if (claimsHash != null) 'claimsHash': claimsHash,
+      };
 }
 
 class SelectedPayinMethod {
@@ -30,6 +38,13 @@ class SelectedPayinMethod {
     required this.kind,
     this.paymentDetailsHash,
   });
+
+  Map<String, dynamic> toJson() => {
+        'amount': amount,
+        'kind': kind,
+        if (paymentDetailsHash != null)
+          'paymentDetailsHash': paymentDetailsHash,
+      };
 }
 
 class SelectedPayoutMethod {
@@ -40,6 +55,12 @@ class SelectedPayoutMethod {
     required this.kind,
     this.paymentDetailsHash,
   });
+
+  Map<String, dynamic> toJson() => {
+        'kind': kind,
+        if (paymentDetailsHash != null)
+          'paymentDetailsHash': paymentDetailsHash,
+      };
 }
 
 class RFQPrivateData {
