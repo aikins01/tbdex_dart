@@ -3,6 +3,7 @@ import 'message.dart';
 
 class OrderData implements MessageData {
   // orderData is empty according to the tbdex specification
+  OrderData();
 
   @override
   MessageKind kind() => MessageKind.order;
