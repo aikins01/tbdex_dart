@@ -1,5 +1,3 @@
-import 'package:typeid/typeid.dart';
-
 enum MessageKind {
   rfq,
   cancel,
@@ -15,7 +13,7 @@ abstract class MessageData {
 }
 
 class MessageMetadata {
-  final TypeId id;
+  final String id;
   final MessageKind kind;
   final String from;
   final String to;

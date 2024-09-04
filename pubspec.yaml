@@ -8,8 +8,10 @@ environment:
   flutter: ">=1.17.0"
 
 dependencies:
+  crypto: ^3.0.5
   flutter:
     sdk: flutter
+  http: ^1.2.2
   typeid: ^1.0.1
 
 dev_dependencies:

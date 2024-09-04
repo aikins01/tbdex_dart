@@ -1,5 +1,3 @@
-import 'package:typeid/typeid.dart';
-
 enum ResourceKind {
   offering,
   balance,
@@ -10,7 +8,7 @@ abstract class ResourceData {
 }
 
 class ResourceMetadata {
-  final TypeId id;
+  final String id;
   final ResourceKind kind;
   final String from;
   final DateTime createdAt;
