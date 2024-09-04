@@ -9,19 +9,16 @@ import '../messages/order_status.dart';
 import '../messages/rfq.dart';
 import '../messages/quote.dart';
 import '../messages/order.dart';
+import '../resources/balance.dart';
+import '../resources/offering.dart';
+import '../resources/resource.dart';
 
 // ignore: camel_case_types
 class tbDEXHttpClient {
-  static Future<List<dynamic>> getOfferings(String pfiDIDURI) async {
-    final endpoint = await _getPFIServiceEndpoint(pfiDIDURI);
-    final response = await http.get(Uri.parse('$endpoint/offerings'));
-
-    if (response.statusCode == 200) {
-      final jsonResponse = json.decode(response.body);
-      return jsonResponse['data'];
-    } else {
-      throw Exception('Failed to load offerings');
-    }
+  static Future<String> _getPFIServiceEndpoint(String pfiDIDURI) async {
+    // TODO: Implement DID resolution
+    // For now, we'll return a placeholder
+    return 'https://api.example.com/v1';
   }
 
   static Future<void> createExchange(RFQ rfq, ed.PublicKey publicKey) async {
@@ -102,6 +99,156 @@ class tbDEXHttpClient {
     if (response.statusCode != 200) {
       throw Exception('Failed to submit order: ${response.body}');
     }
+  }
+
+  static Future<List<Offering>> getOfferings(String pfiDIDURI) async {
+    final endpoint = await _getPFIServiceEndpoint(pfiDIDURI);
+    final response = await http.get(Uri.parse('$endpoint/offerings'));
+
+    if (response.statusCode == 200) {
+      final jsonResponse = json.decode(response.body);
+      final offeringsJson = jsonResponse['data'] as List<dynamic>;
+      return offeringsJson.map((json) => _parseOffering(json)).toList();
+    } else {
+      throw Exception('Failed to fetch offerings: ${response.body}');
+    }
+  }
+
+  static Future<void> submitOffering(
+      Offering offering, ed.PrivateKey privateKey) async {
+    offering.sign(privateKey);
+    if (!offering.verify(ed.public(privateKey))) {
+      throw Exception('Offering signature is invalid');
+    }
+
+    final endpoint = await _getPFIServiceEndpoint(offering.metadata.from);
+    final response = await http.post(
+      Uri.parse('$endpoint/offerings'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode(_serializeResource(offering)),
+    );
+
+    if (response.statusCode != 201) {
+      throw Exception('Failed to submit offering: ${response.body}');
+    }
+  }
+
+  static Future<List<Balance>> getBalances(
+      String pfiDIDURI, String userDID) async {
+    final endpoint = await _getPFIServiceEndpoint(pfiDIDURI);
+    final response = await http.get(
+      Uri.parse('$endpoint/balances'),
+      headers: {
+        'Authorization': 'Bearer $userDID'
+      }, // simplified auth, we would replace with proper auth mechanism
+    );
+
+    if (response.statusCode == 200) {
+      final jsonResponse = json.decode(response.body);
+      final balancesJson = jsonResponse['data'] as List<dynamic>;
+      return balancesJson.map((json) => _parseBalance(json)).toList();
+    } else {
+      throw Exception('Failed to fetch balances: ${response.body}');
+    }
+  }
+
+  static Offering _parseOffering(Map<String, dynamic> json) {
+    final metadata = ResourceMetadata(
+      id: json['metadata']['id'],
+      kind: ResourceKind.offering,
+      from: json['metadata']['from'],
+      createdAt: DateTime.parse(json['metadata']['createdAt']),
+      updatedAt: json['metadata']['updatedAt'] != null
+          ? DateTime.parse(json['metadata']['updatedAt'])
+          : null,
+      protocol: json['metadata']['protocol'],
+    );
+
+    final data = OfferingData(
+      description: json['data']['description'],
+      payoutUnitsPerPayinUnit: json['data']['payoutUnitsPerPayinUnit'],
+      payin: PayinDetails(
+        currencyCode: json['data']['payin']['currencyCode'],
+        min: json['data']['payin']['min'],
+        max: json['data']['payin']['max'],
+        methods: (json['data']['payin']['methods'] as List<dynamic>)
+            .map((m) => PaymentMethod(
+                  kind: m['kind'],
+                  name: m['name'],
+                  description: m['description'],
+                  group: m['group'],
+                  requiredPaymentDetails: m['requiredPaymentDetails'],
+                  fee: m['fee'],
+                  min: m['min'],
+                  max: m['max'],
+                ))
+            .toList(),
+      ),
+      payout: PayoutDetails(
+        currencyCode: json['data']['payout']['currencyCode'],
+        min: json['data']['payout']['min'],
+        max: json['data']['payout']['max'],
+        methods: (json['data']['payout']['methods'] as List<dynamic>)
+            .map((m) => PaymentMethod(
+                  kind: m['kind'],
+                  name: m['name'],
+                  description: m['description'],
+                  group: m['group'],
+                  requiredPaymentDetails: m['requiredPaymentDetails'],
+                  fee: m['fee'],
+                  min: m['min'],
+                  max: m['max'],
+                ))
+            .toList(),
+      ),
+      requiredClaims: json['data']['requiredClaims'],
+      cancellation: CancellationDetails(
+        enabled: json['data']['cancellation']['enabled'],
+        termsUrl: json['data']['cancellation']['termsUrl'] != null
+            ? Uri.parse(json['data']['cancellation']['termsUrl'])
+            : null,
+        terms: json['data']['cancellation']['terms'],
+      ),
+    );
+
+    return Offering(
+      metadata: metadata,
+      data: data,
+      signature: json['signature'],
+    );
+  }
+
+  static Balance _parseBalance(Map<String, dynamic> json) {
+    final metadata = ResourceMetadata(
+      id: json['metadata']['id'],
+      kind: ResourceKind.balance,
+      from: json['metadata']['from'],
+      createdAt: DateTime.parse(json['metadata']['createdAt']),
+      updatedAt: json['metadata']['updatedAt'] != null
+          ? DateTime.parse(json['metadata']['updatedAt'])
+          : null,
+      protocol: json['metadata']['protocol'],
+    );
+
+    final data = BalanceData(
+      currencyCode: json['data']['currencyCode'],
+      available: json['data']['available'],
+    );
+
+    return Balance(
+      metadata: metadata,
+      data: data,
+      signature: json['signature'],
+    );
+  }
+
+  static Map<String, dynamic> _serializeResource<D extends ResourceData>(
+      Resource<D> resource) {
+    return {
+      'metadata': resource.metadata.toJson(),
+      'data': resource.data.toJson(),
+      'signature': resource.signature,
+    };
   }
 
   static Future<OrderStatus> getLatestOrderStatus(
@@ -263,11 +410,5 @@ class tbDEXHttpClient {
       'data': message.data.toJson(),
       'signature': message.signature,
     };
-  }
-
-  static Future<String> _getPFIServiceEndpoint(String pfiDIDURI) async {
-    // TODO: Implement DID resolution
-    // For now, we'll return a placeholder
-    return 'https://api.example.com/v1';
   }
 }

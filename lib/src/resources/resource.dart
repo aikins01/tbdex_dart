@@ -1,3 +1,6 @@
+import 'package:ed25519_edwards/ed25519_edwards.dart' as ed;
+import '../utils/crypto_utils.dart';
+
 enum ResourceKind {
   offering,
   balance,
@@ -5,6 +8,7 @@ enum ResourceKind {
 
 abstract class ResourceData {
   ResourceKind kind();
+  Map<String, dynamic> toJson();
 }
 
 class ResourceMetadata {
@@ -23,6 +27,15 @@ class ResourceMetadata {
     this.updatedAt,
     required this.protocol,
   });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'kind': kind.toString().split('.').last,
+        'from': from,
+        'createdAt': createdAt.toIso8601String(),
+        if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
+        'protocol': protocol,
+      };
 }
 
 class Resource<D extends ResourceData> {
@@ -36,13 +49,16 @@ class Resource<D extends ResourceData> {
     this.signature,
   });
 
-  Future<bool> verify() async {
-    // TODO: Implement verification logic
-    throw UnimplementedError();
+  void sign(ed.PrivateKey privateKey) {
+    final payload = CryptoUtils.getPayloadForSigning(metadata, data);
+    final signatureBytes = ed.sign(privateKey, payload);
+    this.signature = CryptoUtils.encodeSignature(signatureBytes);
   }
 
-  Future<void> sign() async {
-    // TODO: Implement signing logic
-    throw UnimplementedError();
+  bool verify(ed.PublicKey publicKey) {
+    if (signature == null) return false;
+    final payload = CryptoUtils.getPayloadForSigning(metadata, data);
+    final signatureBytes = CryptoUtils.decodeSignature(signature!);
+    return ed.verify(publicKey, payload, signatureBytes);
   }
 }
