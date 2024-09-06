@@ -56,7 +56,7 @@ class Crypto {
         signer.init(true, params);
         final signature = signer.generateSignature(payload) as ECSignature;
         return Uint8List.fromList(
-            signature.r.toBytes() + signature.s.toBytes());
+            signature.r!.toBytes() + signature.s!.toBytes());
       case 'secp256k1':
         final signer = Signer('SHA-256/ECDSA');
         final params = PrivateKeyParameter(ECPrivateKey(
@@ -65,7 +65,7 @@ class Crypto {
         signer.init(true, params);
         final signature = signer.generateSignature(payload) as ECSignature;
         return Uint8List.fromList(
-            signature.r.toBytes() + signature.s.toBytes());
+            signature.r!.toBytes() + signature.s!.toBytes());
       default:
         throw UnsupportedError('Unsupported algorithm: $algorithm');
     }

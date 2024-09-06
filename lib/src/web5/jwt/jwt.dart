@@ -56,3 +56,60 @@ class JWT {
     }
   }
 }
+
+class JWTClaims {
+  final String? issuer;
+  final String? subject;
+  final String? audience;
+  final int? expiration;
+  final int? notBefore;
+  final int? issuedAt;
+  final String? jwtID;
+  final Map<String, dynamic>? miscellaneous;
+
+  JWTClaims({
+    this.issuer,
+    this.subject,
+    this.audience,
+    this.expiration,
+    this.notBefore,
+    this.issuedAt,
+    this.jwtID,
+    this.miscellaneous,
+  });
+
+  Map<String, dynamic> toJson() {
+    final Map<String, dynamic> claims = {
+      if (issuer != null) 'iss': issuer,
+      if (subject != null) 'sub': subject,
+      if (audience != null) 'aud': audience,
+      if (expiration != null) 'exp': expiration,
+      if (notBefore != null) 'nbf': notBefore,
+      if (issuedAt != null) 'iat': issuedAt,
+      if (jwtID != null) 'jti': jwtID,
+    };
+
+    if (miscellaneous != null) {
+      claims.addAll(miscellaneous!);
+    }
+
+    return claims;
+  }
+
+  factory JWTClaims.fromJson(Map<String, dynamic> json) {
+    final standardClaims = {'iss', 'sub', 'aud', 'exp', 'nbf', 'iat', 'jti'};
+    final miscellaneous = Map<String, dynamic>.from(json)
+      ..removeWhere((key, _) => standardClaims.contains(key));
+
+    return JWTClaims(
+      issuer: json['iss'],
+      subject: json['sub'],
+      audience: json['aud'],
+      expiration: json['exp'],
+      notBefore: json['nbf'],
+      issuedAt: json['iat'],
+      jwtID: json['jti'],
+      miscellaneous: miscellaneous.isNotEmpty ? miscellaneous : null,
+    );
+  }
+}
